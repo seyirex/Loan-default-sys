@@ -84,6 +84,252 @@ This system provides a complete MLOps pipeline for loan default prediction, incl
         └─────────────────────────┘
 ```
 
+### Request Flow Diagram
+
+**Real-time Prediction Request (Docker Compose):**
+```
+┌──────────┐
+│  Client  │
+└────┬─────┘
+     │ POST http://localhost:8005/api/v1/predict
+     │ Header: X-API-Key: your-secret-api-key
+     │ Body: {employed: 1, bank_balance: 10000, annual_salary: 50000}
+     ▼
+┌────────────────────────────────────────────────────┐
+│         FastAPI Container (port 8005)              │
+│  ┌──────────────────────────────────────────────┐ │
+│  │ 1. Authentication Middleware                 │ │
+│  │    • Verify X-API-Key header                 │ │
+│  │    • Return 403 if invalid                   │ │
+│  └──────────────┬───────────────────────────────┘ │
+│                 ▼                                  │
+│  ┌──────────────────────────────────────────────┐ │
+│  │ 2. Rate Limiting (SlowAPI)                   │ │
+│  │    • Check: 100 requests/minute per IP       │ │
+│  │    • Return 429 if limit exceeded            │ │
+│  └──────────────┬───────────────────────────────┘ │
+│                 ▼                                  │
+│  ┌──────────────────────────────────────────────┐ │
+│  │ 3. Request Validation (Pydantic)             │ │
+│  │    • Type checking (int, float)              │ │
+│  │    • Range validation (salary > 0)           │ │
+│  │    • Return 422 if invalid                   │ │
+│  └──────────────┬───────────────────────────────┘ │
+│                 ▼                                  │
+│  ┌──────────────────────────────────────────────┐ │
+│  │ 4. Feature Engineering (preprocessing.py)    │ │
+│  │    • Calculate Saving_Rate                   │ │
+│  │    • Formula: Bank_Balance / Annual_Salary   │ │
+│  │    • Create feature vector [4 features]      │ │
+│  └──────────────┬───────────────────────────────┘ │
+│                 ▼                                  │
+│  ┌──────────────────────────────────────────────┐ │
+│  │ 5. Model Inference (ModelService)            │ │
+│  │    • Retrieve cached model from app_state    │ │
+│  │    • Apply StandardScaler (fit during train) │ │
+│  │    • XGBoost.predict_proba() [~10ms]         │ │
+│  │    • Get class (0/1) + probability           │ │
+│  └──────────────┬───────────────────────────────┘ │
+│                 │                                  │
+│                 │ Model loaded from MLflow         │
+│                 │ (once at startup)                │
+│                 ▼                                  │
+│  ┌──────────────────────────────────────────────┐ │
+│  │    MLflow Model Registry Access              │ │
+│  │    • Model: file:///app/mlflow               │ │
+│  │    • Stage: Production                       │ │
+│  │    • Artifacts: model.pkl + scaler.pkl       │ │
+│  └──────────────┬───────────────────────────────┘ │
+│                 ▼                                  │
+│  ┌──────────────────────────────────────────────┐ │
+│  │ 6. Drift Detection (DriftDetector)           │ │
+│  │    • Sample: 10% of predictions              │ │
+│  │    • Calculate PSI vs reference (1000 pred)  │ │
+│  │    • Alert if PSI > 0.15 for any feature     │ │
+│  │    • Async/non-blocking                      │ │
+│  └──────────────┬───────────────────────────────┘ │
+│                 ▼                                  │
+│  ┌──────────────────────────────────────────────┐ │
+│  │ 7. Metrics Recording (Prometheus)            │ │
+│  │    • loan_predictions_total++                │ │
+│  │    • loan_prediction_duration_seconds        │ │
+│  │    • loan_prediction_result_total{class=0}   │ │
+│  │    • loan_model_drift_psi{feature=...}       │ │
+│  └──────────────┬───────────────────────────────┘ │
+│                 ▼                                  │
+│  ┌──────────────────────────────────────────────┐ │
+│  │ 8. Response Formatting                       │ │
+│  │    • Map: 0 → "no_default", 1 → "default"    │ │
+│  │    • Risk: Low (<0.3), Medium, High (>0.7)   │ │
+│  │    • Return JSON with model metadata         │ │
+│  └──────────────┬───────────────────────────────┘ │
+└─────────────────┼────────────────────────────────┘
+                  ▼
+     ┌────────────────────────────────┐
+     │  Client receives response      │
+     │  Status: 200 OK                │
+     │  {                             │
+     │    "success": true,            │
+     │    "data": {                   │
+     │      "prediction": 0,          │
+     │      "probability": 0.0823,    │
+     │      "default_risk": "Low",    │
+     │      "model_version": "1"      │
+     │    }                           │
+     │  }                             │
+     │  Total Duration: ~15-25ms      │
+     └────────────────────────────────┘
+```
+
+**Batch Prediction Request (Celery + Redis):**
+```
+┌──────────┐
+│  Client  │
+└────┬─────┘
+     │ POST http://localhost:8005/api/v1/predict/batch
+     │ Body: {predictions: [{...}, {...}, ...]}  (up to 1000)
+     ▼
+┌────────────────────────────────────────────────────┐
+│         FastAPI Container (port 8005)              │
+│  1. Validate request (max 1000 predictions)        │
+│  2. Create Celery task via batch_service.py        │
+│  3. Return job_id immediately (202 Accepted)       │
+│     Duration: ~5ms                                 │
+└────┬───────────────────────────────────────────────┘
+     │
+     │ Task queued via Celery
+     ▼
+┌────────────────────────────────────────────────────┐
+│      Redis Container (port 6389)                   │
+│  • Broker: Stores task in "celery" queue           │
+│  • Task data: job_id, predictions array, metadata  │
+└────┬───────────────────────────────────────────────┘
+     │
+     │ Celery worker polls queue every 1s
+     ▼
+┌────────────────────────────────────────────────────┐
+│    Celery Worker Container (2 concurrent workers)  │
+│  ┌──────────────────────────────────────────────┐ │
+│  │ 1. Receive task from Redis broker            │ │
+│  └──────────────┬───────────────────────────────┘ │
+│                 ▼                                  │
+│  ┌──────────────────────────────────────────────┐ │
+│  │ 2. Load model from MLflow                    │ │
+│  │    • Same model as API (shared volume)       │ │
+│  │    • Cached after first load                 │ │
+│  └──────────────┬───────────────────────────────┘ │
+│                 ▼                                  │
+│  ┌──────────────────────────────────────────────┐ │
+│  │ 3. Batch Processing                          │ │
+│  │    • Process in chunks of 100                │ │
+│  │    • Feature engineering for each row        │ │
+│  │    • Model inference (vectorized)            │ │
+│  │    • ~100ms per 100 predictions              │ │
+│  └──────────────┬───────────────────────────────┘ │
+│                 ▼                                  │
+│  ┌──────────────────────────────────────────────┐ │
+│  │ 4. Drift Detection (5% sample rate)          │ │
+│  │    • Lower sampling for batch vs online      │ │
+│  │    • Same PSI calculation                    │ │
+│  └──────────────┬───────────────────────────────┘ │
+│                 ▼                                  │
+│  ┌──────────────────────────────────────────────┐ │
+│  │ 5. Store results in Redis                    │ │
+│  │    • Key: celery-task-meta-{job_id}          │ │
+│  │    • Value: {status, result, traceback}      │ │
+│  │    • TTL: 24 hours                           │ │
+│  └──────────────┬───────────────────────────────┘ │
+│                 ▼                                  │
+│  ┌──────────────────────────────────────────────┐ │
+│  │ 6. Task Complete                             │ │
+│  │    • Update status: PENDING → SUCCESS        │ │
+│  │    • Log completion with duration            │ │
+│  └──────────────────────────────────────────────┘ │
+└────────────────────────────────────────────────────┘
+     │
+     │ Results stored in Redis
+     ▼
+┌────────────────────────────────────────────────────┐
+│      Redis Container (Result Backend)              │
+│  • Results accessible via job_id                   │
+│  • Client polls: GET /api/v1/predict/batch/{id}    │
+└─────────────────────────────────────────────────┬──┘
+                                                   │
+              Client polling every 2-5s             │
+                                                   ▼
+                    ┌───────────────────────────────────┐
+                    │  FastAPI returns result           │
+                    │  {                                │
+                    │    "job_id": "abc-123",           │
+                    │    "status": "SUCCESS",           │
+                    │    "total_predictions": 500,      │
+                    │    "results": [                   │
+                    │      {"prediction": 0, "prob": 0.1},│
+                    │      ...                          │
+                    │    ],                             │
+                    │    "processing_time": "2.3s"      │
+                    │  }                                │
+                    └───────────────────────────────────┘
+```
+
+**Model Loading at Startup:**
+```
+Docker Container Start
+         │
+         ▼
+┌─────────────────────────────────────┐
+│  FastAPI lifespan event (main.py)  │
+│  Triggered once at startup          │
+└────┬────────────────────────────────┘
+     ▼
+┌─────────────────────────────────────┐
+│  ModelService.load_model()          │
+│  1. Connect to MLflow tracking URI  │
+│     • file:///app/mlflow (local)    │
+│  2. Query registry for model        │
+│     • Name: "loan-default-xgboost"  │
+│     • Stage: "Production"           │
+│  3. Download artifacts               │
+│     • model.pkl                     │
+│     • scaler.pkl                    │
+│  4. Load into memory (~30s)         │
+│  5. Store in app_state              │
+└────┬────────────────────────────────┘
+     ▼
+┌─────────────────────────────────────┐
+│  Readiness probe succeeds           │
+│  GET /readyz returns 200            │
+│  Container ready for traffic        │
+└─────────────────────────────────────┘
+```
+
+**Monitoring & Observability:**
+```
+┌────────────────────────────────────────────────┐
+│           Prometheus Scraper                   │
+│  • Scrapes: http://localhost:8005/metrics      │
+│  • Interval: 15s                               │
+│  • Stores time-series data                     │
+└────┬───────────────────────────────────────────┘
+     │
+     ▼
+┌────────────────────────────────────────────────┐
+│  Custom Metrics Exposed                        │
+│  • loan_predictions_total (counter)            │
+│  • loan_prediction_duration_seconds (histogram)│
+│  • loan_prediction_result_total (counter)      │
+│  • loan_model_drift_psi (gauge)                │
+│  • loan_model_drift_detected (gauge)           │
+└────────────────────────────────────────────────┘
+```
+
+**Key Flow Characteristics:**
+- **Latency**: Real-time predictions: 15-25ms, Batch: ~10ms per prediction
+- **Throughput**: 4 Uvicorn workers = ~400 req/sec per container
+- **State**: Stateless API, state in MLflow (models) and Redis (jobs)
+- **Scalability**: Horizontal scaling via Docker Compose replicas or K8s HPA
+- **Resilience**: Health checks, retry logic (Celery), graceful degradation
+
 ## ✨ Features
 
 ### Core Functionality
