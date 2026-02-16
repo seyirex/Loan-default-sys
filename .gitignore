@@ -51,9 +51,10 @@ htmlcov/
 *.log
 
 # MLflow
-mlflow/mlruns/
+mlflow/
 mlflow.db
 mlartifacts/
+!mlflow/.gitkeep
 
 # Jupyter
 .ipynb_checkpoints

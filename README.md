@@ -364,6 +364,26 @@ This will:
 - Navigate to "loan-default-prediction" experiment
 - View metrics, parameters, and model artifacts
 
+**Transfer trained model to another server:**
+
+The trained model and MLflow artifacts are stored in `./mlflow` directory. To deploy on another server without retraining:
+
+```bash
+# On training server - package MLflow artifacts
+tar -czf mlflow-artifacts.tar.gz mlflow/
+
+# Transfer to deployment server
+scp mlflow-artifacts.tar.gz user@deployment-server:/path/to/loan-default-sys/
+
+# On deployment server - extract artifacts
+tar -xzf mlflow-artifacts.tar.gz
+
+# Start services (skip training step)
+docker-compose up
+```
+
+The API will automatically load the Production model from the `./mlflow` directory at startup.
+
 ### 4. Start Services
 
 ```bash
