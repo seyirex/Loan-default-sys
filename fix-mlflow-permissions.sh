@@ -31,7 +31,15 @@ if [ -f "mlflow/mlflow.db" ]; then
 
     # Enable WAL mode for better concurrent access
     echo "Enabling WAL mode for SQLite database..."
-    sqlite3 mlflow/mlflow.db "PRAGMA journal_mode=WAL;" 2>/dev/null || true
+    if command -v sqlite3 &> /dev/null; then
+        sqlite3 mlflow/mlflow.db "PRAGMA journal_mode=WAL;" 2>/dev/null || true
+    elif command -v python3 &> /dev/null; then
+        python3 -c "import sqlite3; conn = sqlite3.connect('mlflow/mlflow.db'); conn.execute('PRAGMA journal_mode=WAL'); conn.close()" 2>/dev/null || true
+    elif command -v python &> /dev/null; then
+        python -c "import sqlite3; conn = sqlite3.connect('mlflow/mlflow.db'); conn.execute('PRAGMA journal_mode=WAL'); conn.close()" 2>/dev/null || true
+    else
+        echo "Warning: Neither sqlite3 nor python found. WAL mode will be enabled when services start."
+    fi
 fi
 
 echo "Permissions fixed!"
