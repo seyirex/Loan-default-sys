@@ -28,6 +28,10 @@ fi
 # Make mlflow.db writable
 if [ -f "mlflow/mlflow.db" ]; then
     sudo chmod 644 mlflow/mlflow.db
+
+    # Enable WAL mode for better concurrent access
+    echo "Enabling WAL mode for SQLite database..."
+    sqlite3 mlflow/mlflow.db "PRAGMA journal_mode=WAL;" 2>/dev/null || true
 fi
 
 echo "Permissions fixed!"

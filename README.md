@@ -810,8 +810,47 @@ See [.env.example](.env.example) for all configuration options.
 
 **Solution**:
 1. Ensure you've trained the model: `docker-compose run --rm api python training/train.py`
-2. Check MLflow directory: `ls -la mlflow/mlruns/`
+2. Check MLflow directory: `ls -la mlflow/`
 3. Check logs: `docker-compose logs api`
+
+### Permission denied errors (on server deployments)
+
+**Issue**: `Permission denied: '/app/mlruns/...'` or `Failed to load model` with permission errors
+
+**Solution**:
+```bash
+# Run the permission fix script
+./fix-mlflow-permissions.sh
+
+# Or manually fix permissions
+sudo chown -R 1000:1000 mlflow/
+sudo chmod -R 755 mlflow/
+
+# Restart services
+docker-compose restart
+```
+
+**Note**: This is common when transferring MLflow artifacts between servers or after copying from Docker volumes.
+
+### Database locked errors
+
+**Issue**: `sqlite3.OperationalError: database is locked` in MLflow logs
+
+**Solution**:
+SQLite doesn't handle concurrent access well. The docker-compose.yml is configured to enable WAL mode automatically, but if you're seeing this error:
+
+```bash
+# Manually enable WAL mode
+sqlite3 mlflow/mlflow.db "PRAGMA journal_mode=WAL;"
+
+# Or run the fix script which includes this
+./fix-mlflow-permissions.sh
+
+# Restart services
+docker-compose restart
+```
+
+**Production recommendation**: For high-concurrency production deployments, migrate MLflow to PostgreSQL backend (see k8s/deployment-postgres.yaml).
 
 ### Celery worker not processing jobs
 
