@@ -68,31 +68,31 @@ services:
       - loan-network
     command: celery -A src.services.batch_service worker --loglevel=info --concurrency=2
 
-  mlflow:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: loan-mlflow
-    user: "0:0"
-    ports:
-      - "5001:5000"
-    env_file:
-      - .env
-    environment:
-      - MLFLOW_TRACKING_USERNAME=${MLFLOW_TRACKING_USERNAME}
-      - MLFLOW_TRACKING_PASSWORD=${MLFLOW_TRACKING_PASSWORD}
-      - MLFLOW_FLASK_SERVER_SECRET_KEY=${MLFLOW_FLASK_SERVER_SECRET_KEY}
-      - MLFLOW_SERVER_ALLOWED_HOSTS=${MLFLOW_SERVER_ALLOWED_HOSTS}
-    volumes:
-      - ./mlflow:/app/mlflow
-    working_dir: /app
-    command: >
-      sh -c "
-      python -c 'import sqlite3; conn = sqlite3.connect(\"/app/mlflow/mlflow.db\"); conn.execute(\"PRAGMA journal_mode=WAL\"); conn.close()' &&
-      mlflow server --backend-store-uri sqlite:////app/mlflow/mlflow.db --default-artifact-root /app/mlflow/artifacts --host 0.0.0.0 --port 5000
-      "
-    networks:
-      - loan-network
+  # mlflow:
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    # container_name: loan-mlflow
+    # user: "0:0"
+    # ports:
+    #   - "5001:5000"
+    # env_file:
+    #   - .env
+    # environment:
+    #   - MLFLOW_TRACKING_USERNAME=${MLFLOW_TRACKING_USERNAME}
+    #   - MLFLOW_TRACKING_PASSWORD=${MLFLOW_TRACKING_PASSWORD}
+    #   - MLFLOW_FLASK_SERVER_SECRET_KEY=${MLFLOW_FLASK_SERVER_SECRET_KEY}
+    #   - MLFLOW_SERVER_ALLOWED_HOSTS=${MLFLOW_SERVER_ALLOWED_HOSTS}
+    # volumes:
+    #   - ./mlflow:/app/mlflow
+    # working_dir: /app
+    # command: >
+    #   sh -c "
+    #   python -c 'import sqlite3; conn = sqlite3.connect(\"/app/mlflow/mlflow.db\"); conn.execute(\"PRAGMA journal_mode=WAL\"); conn.close()' &&
+    #   mlflow server --backend-store-uri sqlite:////app/mlflow/mlflow.db --default-artifact-root /app/mlflow/artifacts --host 0.0.0.0 --port 5000
+    #   "
+    # networks:
+    #   - loan-network
 
   # TODO: Add Flower service for Celery monitoring
 
