@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: loan-default-prediction
+  labels:
+    app: loan-default-prediction
+    environment: production

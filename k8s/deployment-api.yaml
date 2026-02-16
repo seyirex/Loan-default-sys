@@ -1,0 +1,122 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loan-api
+  namespace: loan-default-prediction
+  labels:
+    app: loan-api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: loan-api
+  template:
+    metadata:
+      labels:
+        app: loan-api
+    spec:
+      containers:
+        - name: api
+          image: loan-default-api:latest  # Replace with your container registry
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            # Load from ConfigMap
+            - name: APP_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: loan-api-config
+                  key: APP_NAME
+            - name: APP_VERSION
+              valueFrom:
+                configMapKeyRef:
+                  name: loan-api-config
+                  key: APP_VERSION
+            - name: ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: loan-api-config
+                  key: ENVIRONMENT
+            - name: API_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: loan-api-config
+                  key: API_HOST
+            - name: API_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: loan-api-config
+                  key: API_PORT
+            - name: MLFLOW_TRACKING_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: loan-api-config
+                  key: MLFLOW_TRACKING_URI
+            - name: MODEL_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: loan-api-config
+                  key: MODEL_NAME
+            - name: MODEL_STAGE
+              valueFrom:
+                configMapKeyRef:
+                  name: loan-api-config
+                  key: MODEL_STAGE
+            - name: REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: loan-api-config
+                  key: REDIS_HOST
+            - name: CELERY_BROKER_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: loan-api-config
+                  key: CELERY_BROKER_URL
+            - name: CELERY_RESULT_BACKEND
+              valueFrom:
+                configMapKeyRef:
+                  name: loan-api-config
+                  key: CELERY_RESULT_BACKEND
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: loan-api-config
+                  key: LOG_LEVEL
+            # Load from Secret
+            - name: API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: loan-api-secret
+                  key: API_KEY
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+          volumeMounts:
+            - name: mlflow-storage
+              mountPath: /app/mlflow
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: mlflow-storage
+          persistentVolumeClaim:
+            claimName: mlflow-storage

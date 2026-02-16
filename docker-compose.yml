@@ -1,0 +1,102 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: loan-redis
+    ports:
+      - "6389:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - loan-network
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: loan-api
+    ports:
+      - "8005:8000"
+    env_file:
+      - .env
+    environment:
+      - REDIS_HOST=redis
+      - MLFLOW_TRACKING_URI=sqlite:////app/mlflow/mlflow.db
+      - MLFLOW_TRACKING_USERNAME=${MLFLOW_TRACKING_USERNAME}
+      - MLFLOW_TRACKING_PASSWORD=${MLFLOW_TRACKING_PASSWORD}
+    volumes:
+      - mlflow-data:/app/mlflow
+      - mlruns-data:/app/mlruns
+      - ./training:/app/training
+      - ./src:/app/src
+      - ./tests:/app/tests
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - loan-network
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+
+  celery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: loan-celery-worker
+    env_file:
+      - .env
+    environment:
+      - REDIS_HOST=redis
+      - MLFLOW_TRACKING_URI=sqlite:////app/mlflow/mlflow.db
+      - MLFLOW_TRACKING_USERNAME=${MLFLOW_TRACKING_USERNAME}
+      - MLFLOW_TRACKING_PASSWORD=${MLFLOW_TRACKING_PASSWORD}
+    volumes:
+      - mlflow-data:/app/mlflow
+      - mlruns-data:/app/mlruns
+      - ./src:/app/src
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - loan-network
+    command: celery -A src.services.batch_service worker --loglevel=info --concurrency=2
+
+  mlflow:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: loan-mlflow
+    user: "0:0"
+    ports:
+      - "5001:5000"
+    env_file:
+      - .env
+    environment:
+      - MLFLOW_TRACKING_USERNAME=${MLFLOW_TRACKING_USERNAME}
+      - MLFLOW_TRACKING_PASSWORD=${MLFLOW_TRACKING_PASSWORD}
+      - MLFLOW_FLASK_SERVER_SECRET_KEY=${MLFLOW_FLASK_SERVER_SECRET_KEY}
+    volumes:
+      - mlflow-data:/app/mlflow
+    working_dir: /app
+    command: mlflow server --backend-store-uri sqlite:////app/mlflow/mlflow.db --default-artifact-root /app/mlflow/artifacts --host 0.0.0.0 --port 5000
+    networks:
+      - loan-network
+
+  # TODO: Add Flower service for Celery monitoring
+
+  # TODO: Add nginx service for reverse proxy and load balancing
+
+networks:
+  loan-network:
+    driver: bridge
+
+volumes:
+  mlflow-data:
+  mlruns-data:

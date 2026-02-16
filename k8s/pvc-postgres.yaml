@@ -1,0 +1,17 @@
+# OPTIONAL: PostgreSQL Storage
+# Only needed if using PostgreSQL as MLflow backend store
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-storage
+  namespace: loan-default-prediction
+  labels:
+    app: postgres
+spec:
+  accessModes:
+    - ReadWriteOnce  # PostgreSQL needs exclusive access
+  resources:
+    requests:
+      storage: 5Gi
+  # storageClassName: default  # Uncomment and set appropriate storage class

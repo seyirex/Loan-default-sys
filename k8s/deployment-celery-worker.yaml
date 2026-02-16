@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker
+  namespace: loan-default-prediction
+  labels:
+    app: celery-worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: celery-worker
+  template:
+    metadata:
+      labels:
+        app: celery-worker
+    spec:
+      containers:
+        - name: celery-worker
+          image: loan-default-api:latest  # Same image as API
+          imagePullPolicy: IfNotPresent
+          command:
+            - celery
+            - -A
+            - src.services.batch_service
+            - worker
+            - --loglevel=info
+            - --concurrency=2
+          env:
+            # Load from ConfigMap
+            - name: MLFLOW_TRACKING_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: loan-api-config
+                  key: MLFLOW_TRACKING_URI
+            - name: MODEL_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: loan-api-config
+                  key: MODEL_NAME
+            - name: MODEL_STAGE
+              valueFrom:
+                configMapKeyRef:
+                  name: loan-api-config
+                  key: MODEL_STAGE
+            - name: REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: loan-api-config
+                  key: REDIS_HOST
+            - name: CELERY_BROKER_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: loan-api-config
+                  key: CELERY_BROKER_URL
+            - name: CELERY_RESULT_BACKEND
+              valueFrom:
+                configMapKeyRef:
+                  name: loan-api-config
+                  key: CELERY_RESULT_BACKEND
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: loan-api-config
+                  key: LOG_LEVEL
+          resources:
+            requests:
+              memory: "768Mi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          volumeMounts:
+            - name: mlflow-storage
+              mountPath: /app/mlflow
+      volumes:
+        - name: mlflow-storage
+          persistentVolumeClaim:
+            claimName: mlflow-storage

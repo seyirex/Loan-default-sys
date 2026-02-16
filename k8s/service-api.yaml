@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: loan-api
+  namespace: loan-default-prediction
+  labels:
+    app: loan-api
+spec:
+  type: LoadBalancer  # Change to ClusterIP if using Ingress
+  ports:
+    - port: 80
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app: loan-api

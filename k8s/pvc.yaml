@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mlflow-storage
+  namespace: loan-default-prediction
+  labels:
+    app: loan-api
+spec:
+  accessModes:
+    - ReadWriteMany  # Shared access across API and Celery pods
+  resources:
+    requests:
+      storage: 10Gi
+  # storageClassName: default  # Uncomment and set appropriate storage class
